@@ -1,0 +1,173 @@
+#lang rhombus/static/and_meta
+
+import lib("racket/port.rkt") as port:
+  expose #{with-output-to-bytes} as with_output_to_bytes
+  expose #{with-input-from-bytes} as with_input_from_bytes
+
+import lib("racket/base.rkt") as r:
+  expose #{write} as write_value
+  expose #{read} as read_value
+  expose #{write-bytes} as write_bytes
+  expose #{with-output-to-file} as with_output_to_file
+  expose #{call-with-input-file} as call_with_input_file
+  expose #{file-position} as file_position
+
+import "path-utils.rhm" open
+import rhombus:
+  expose filesystem as fs
+
+expr.macro 'begin0:
+              $form0
+              $form
+              ...':
+  'call_with_values(fun (): $form0,
+                    fun (& args):
+                       $form
+                       ...
+                       values(& args))'
+
+
+export:
+  create_archive
+  archive_extract_to
+  archive_extract_file
+  archive_directory_list
+  archive_directory_exists
+
+fun value_to_bytes(v):
+  with_output_to_bytes(fun (): r.write_value(v))
+
+fun bytes_to_value(bs, predicate, err):
+  let v = with_input_from_bytes(bs, read_value)
+  unless predicate(v):
+  | err()
+  v
+
+fun create_archive(archive_path :: Path, root :: Path):
+  let mutable start = 0
+  let mutable vals :: List = []
+  
+  fun make_table(path :: Path) :: Map:
+    for Map(p : fs.files(path)):
+      let fp = path.add(p)
+      let is_directory = fs.directory_exists(fp)
+      let val :: Bytes = if is_directory:
+      | value_to_bytes(make_table(fp))
+      | fs.read_bytes(fp)
+      
+      let len = val.length()
+      
+      begin0:
+        values(to_string(p), [is_directory, start, len])
+        start := start + len
+        vals := vals.add(val)
+      
+  let root_table = value_to_bytes(make_table(root))
+
+  with_output_to_file(archive_path,
+                      ~exists: #'replace,
+                      fun ():
+                        write_value(root.string())
+                        write_value(root_table)
+
+                        for (v : vals):
+                          r.write_bytes(v))
+
+fun read_maybe(p, predicate, err):
+  try:
+    let v = read_value(p)
+    if predicate(v):
+    | v
+    | err()
+    ~catch Exn.Fail(_,_): err()
+
+fun bad_archive(who, path):
+  fun ():
+    error(who, @str{"@path is not a valid archive"})
+
+
+fun archive_extract_path(archive_path :: Path, p :: Path) :: values(Boolean, Bytes):
+  let ps :: List.of(Path) = p.split()
+  
+  fun not_in_archive():
+    error(#'archive_extract_path, @str{"@p is not in the archive"})
+
+  fun run(fport :: Port.Input) :: values(Boolean, Bytes):
+    let root_string = read_maybe(fport, (_ is_a String), bad_archive)
+    let root = Path(root_string)
+    let roots = root.split()
+    let root_len = roots.length()
+    
+    unless (root_len <= ps.length()):
+    | not_in_archive()
+
+    let ps_roots = ps.drop(root_len)
+    let root_table_bytes = read_maybe(fport, (_ is_a Bytes), bad_archive)
+    let root_table = bytes_to_value(root_table_bytes, (_ is_a Map), bad_archive)
+    let heap_start = r.file_position(fport)
+
+    fun extract_table(t :: Map, p :: Path):
+      let (is_directory, bs) = extract_bytes(t, p)
+      unless is_directory:
+      | not_in_archive()
+      bytes_to_value(bs, (_ is_a Map), bad_archive)
+
+    fun extract_bytes(t :: Map, p :: Path):
+     match Map.get(t, to_string(p), not_in_archive):
+     | Array(is_directory, file_start, len):
+         file_position(fport, heap_start + file_start)
+         let bs :: Bytes = fport.read_bytes(len)
+         unless (bs.length() == len):
+         | bad_archive(#'archive_extract_path, archive_path)()
+         values(is_directory, bs)
+
+    fun find_file(ps_roots :: List.of(Path), table :: Map):
+       match ps_roots:
+       | [p]: extract_bytes(table, p)
+       | [p, &rst]: find_file(rst, extract_table(table, p))
+
+    match ps_roots:
+    | [] : values(#true, root_table_bytes)
+    | _ : find_file(ps_roots, root_table)
+
+  r.call_with_input_file(archive_path,
+                         fun (fport :: Port.Input):
+                           try:
+                             run(fport)
+                             ~finally: fport.close())
+
+fun archive_extract_file(archive_path :: Path, fp :: Path) :: Bytes:
+  let (is_directory, bs) = archive_extract_path(archive_path, fp)
+  when is_directory:
+  | error(~who: #'archive_extract_file, @str{"@fp is not a file"})
+  bs
+
+fun archive_directory_list(archive_path :: Path, fp :: Path) :: List.of(Path):  
+  let (is_directory, bs) = archive_extract_path(archive_path, fp)
+  unless is_directory
+  | error(~who: #'archive_directory_list, @str{"{fp} is not a directory"})
+  for List (k : Map.keys(
+                  bytes_to_value(bs,
+                                 r.#{hash?},
+                                 bad_archive(#'archive_directory_list, archive_path)))):
+    Path(k)
+
+fun archive_directory_exists(archive_path :: Path, fp :: Path) :: Boolean:
+  try:
+    let (is_directory, _) = archive_extract_path(archive_path, fp)
+    is_directory
+    ~catch Exn.Fail(_,_):  #false
+
+
+fun archive_extract_to(archive_file_path :: Path, archive_inner_path :: Path, to :: Path):
+  print(@str{"@to "})
+  if archive_directory_exists(archive_file_path, archive_inner_path):
+  | print("D\n")
+    fs.make_directory(to)
+    for (p : archive_directory_list(archive_file_path, archive_inner_path)):
+      archive_extract_to(archive_file_path, archive_inner_path.add(p), to.add(p))
+  | print("F\n")
+    unless (fs.file_exists(to)):
+    | with_output_to_file(to, ~exists: #'error,
+                          fun (): 
+                            write_bytes(archive_extract_file(archive_file_path, archive_inner_path)))

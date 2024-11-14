@@ -1,0 +1,37 @@
+#lang rhombus/static
+
+export:
+  Event
+  Stdout
+  Stderr
+  Status
+  Timeout
+  Exit
+  status_duration
+
+class Event():
+  nonfinal
+  prefab
+
+class Stdout(bytes :: Bytes):
+  extends Event
+  prefab
+
+class Stderr(bytes :: Bytes):
+  extends Event
+  prefab
+
+class Status(start :: Number, end :: Number, command_line :: List.of(String), output_log :: List.of(Event)):
+  nonfinal
+  prefab
+
+class Timeout():
+  extends Status
+  prefab
+
+class Exit(code :: Int):
+  extends Status
+  prefab
+
+fun status_duration(s :: Status) :: Number:
+  s.end - s.start

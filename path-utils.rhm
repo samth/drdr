@@ -1,0 +1,51 @@
+#lang rhombus/static
+
+import rhombus/static:
+  expose filesystem as fs
+
+import lib("racket/file.rkt") open:
+  expose #{write-to-file} as write_to_file
+import rhombus/rx open
+
+export:
+  current_temporary_directory
+  safely_delete_directory
+  prune_directory_list
+  make_parent_directory
+  alt_directory_list
+  rebase_path
+  write_to_file_atomic
+
+Parameter.def current_temporary_directory = system.path(#'temp_dir)
+
+fun prune_directory_list(l :: List.of(Path)):
+  (for List(p : l):
+    skip_when rx'bof "."'.match(p.bytes())
+    skip_when p.bytes() == #"compiled"
+    skip_when fs.link_exists(p)
+    p).sort((_::Path < _))
+
+fun alt_directory_list(p :: Path):
+  p |> fs.files |> prune_directory_list
+
+fun safely_delete_directory(p :: Path):
+  try:
+    fs.delete(p, ~recur: #true, ~must_exist: #false)
+    ~catch e :: Exn.Fail: #void
+
+fun make_parent_directory(p :: Path):
+  fs.make_directory(p.parent(), ~parents: #true)
+
+fun write_to_file_atomic(v, p :: Path):
+  let tpth = fs.make_temporary()
+  write_to_file(v,tpth, ~exists: #'truncate)
+  make_parent_directory(p)
+  fs.rename(tpth,p,~exists_ok: #true)
+
+fun rebase_path(from :: Path, to :: Path):
+  let froms = from.split()
+  let froms_len = froms.length()
+  fun (p :: Path):
+    let pths = p.split()
+    to.add(& pths.drop(froms_len))
+

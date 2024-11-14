@@ -1,0 +1,127 @@
+#lang rhombus/static
+
+import "path-utils.rhm" open
+
+export:
+  current_subprocess_timeout_seconds
+  number_of_cpus
+  plt_directory
+  plt_build_directory
+  plt_future_build_directory
+  plt_new_pushes_file
+  plt_data_directory
+  drdr_directory
+  make_path
+  tar_path
+  bash_path
+  Xvfb_path
+  fluxbox_path
+  vncviewer_path
+  plt_repository
+  current_make_timeout_seconds
+  current_make_install_timeout_seconds
+  current_rev
+  previous_rev
+  revision_dir
+  revision_log_dir
+  revision_analyze_dir
+  revision_trunk_dir
+  revision_trunk_tgz
+  revision_trunk_tar_7z
+  revision_commit_msg
+  path_to_revision
+  revision_archive
+  future_record_path
+  path_timing_log
+  path_timing_png
+  path_timing_html
+  path_timing_png_prefix
+  build_flag
+  on_unix
+
+Parameter.def number_of_cpus = 1
+
+Parameter.def current_subprocess_timeout_seconds = 60 * 10
+
+Parameter.def plt_directory :: Path = Path.current_directory()
+
+fun plt_build_directory() :: Path:
+  plt_directory().add("builds")
+
+fun plt_future_build_directory() :: Path:
+  plt_directory().add("future-builds")
+
+fun plt_new_pushes_file() :: Path:
+  plt_directory().add("pushes")
+
+fun plt_data_directory() :: Path:
+  plt_directory().add("data")
+
+Parameter.def drdr_directory = Path.current_directory().add("drdr")
+
+Parameter.def make_path = "/usr/bin/make"
+Parameter.def tar_path = "/bin/tar"
+Parameter.def bash_path = "/bin/bash"
+Parameter.def Xvfb_path = "/usr/bin/Xvfb"
+Parameter.def fluxbox_path = "/usr/bin/fluxbox"
+Parameter.def vncviewer_path = "/usr/bin/vncviewer"
+
+fun plt_repository() :: Path:
+  plt_directory().add("repo")
+
+Parameter.def current_make_timeout_seconds = 60 * 30
+Parameter.def current_make_install_timeout_seconds = 60 * 30
+
+Parameter.def current_rev = #false
+Parameter.def previous_rev = #false
+
+fun revision_dir(rev :: Number) :: Path:
+  plt_build_directory().add(rev |> to_string)
+
+fun revision_log_dir(rev :: Number) :: Path:
+  revision_dir(rev).add("logs")
+
+fun revision_analyze_dir(rev :: Number) :: Path:
+  revision_dir(rev).add("analyze")
+
+fun revision_trunk_dir(rev :: Number) :: Path:
+  revision_dir(rev).add("trunk")
+
+fun revision_trunk_tgz(rev :: Number) :: Path:
+  revision_dir(rev).add("trunk.tgz")
+
+fun revision_trunk_tar_7z(rev :: Number) :: Path:
+  revision_dir(rev).add("trunk.tar.7z")
+
+fun revision_commit_msg(rev :: Number) :: Path:
+  revision_dir(rev).add("commit-msg")
+
+fun path_to_revision(pth :: Path) :: Number:
+  let builds = plt_build_directory().split()
+  let builds_len = builds.length()
+  let pths = pth.split()
+  pths[builds_len] |> to_string |> String.to_number
+
+fun revision_archive(rev :: Number) :: Path:
+  revision_dir(rev).add("archive.db")
+
+fun future_record_path(n :: Number) :: Path:
+  plt_future_build_directory().add(n |> to_string)
+
+fun path_timing_log(p :: Path) :: Path:
+  plt_data_directory().add(p).add_suffix(".timing")
+
+fun path_timing_png(p :: Path) :: Path:
+  path_timing_log(p).add_suffix(".png")
+
+fun path_timing_html(p :: Path) :: Path:
+  path_timing_log(p).add_suffix(".html")
+
+fun path_timing_png_prefix(p :: Path) :: Path:
+  path_timing_log(p)
+
+Parameter.def build_flag = #true
+
+fun on_unix() :: Boolean:
+  #'unix == system.type()
+

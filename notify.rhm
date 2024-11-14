@@ -1,0 +1,24 @@
+#lang rhombus/static
+
+import lib("racket/base.rkt") as r:
+  expose #{current-seconds} as current_seconds
+  expose #{seconds->date} as seconds_to_date
+  expose #{log-info} as log_info
+import lib("racket/date.rkt") as date:
+  expose #{date->string} as to_string
+  expose #{date-display-format} as display_format
+
+export:
+  seconds_to_string
+  notify
+
+fun notify(fmt :: String, args, ...):
+  let now = current_seconds()
+  log_info(@str{[@(now): @(seconds_to_string(now))] @(r.format(args, ...))})
+
+fun seconds_to_string(secs :: Int) :: String:
+  parameterize {date.display_format: #'iso-8601}:
+    date.to_string(seconds_to_date(secs), #true)
+
+module test:
+  seconds_to_string(r.current_seconds())

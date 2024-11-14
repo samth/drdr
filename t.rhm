@@ -1,0 +1,13 @@
+#lang rhombus/static
+
+macro 'begin0:
+         $form
+         $forms ...':
+  'call_with_values(fun (): $form,
+                    fun (& args):
+                       $forms ...
+                       values(& args))'
+
+begin0:
+  values(1,2)
+  3

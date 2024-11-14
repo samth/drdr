@@ -1,0 +1,10 @@
+#lang rhombus/static
+import lib("racket/base.rkt") as r:
+  rename #{semaphore-wait} as semaphore_wait
+
+export semaphore_wait_n
+
+fun semaphore_wait_n(sema, how_many :: Number):
+  unless (0 == how_many)
+  | r.semaphore_wait(sema)
+    semaphore_wait_n(sema, how_many-1)
