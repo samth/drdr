@@ -1195,7 +1195,6 @@ in.}
   (response/xexpr
    `(html
      (head (title ,title)
-           (script ([src "/sorttable.js"]) " ")
            (link ([rel "stylesheet"] [type "text/css"] [href "/render.css"])))
      (body
       (div ([class "dirlog, content"])
@@ -1205,7 +1204,7 @@ in.}
                  " / "
                  (span ([class "this"])
                        "File History: /" ,file-path-str))
-           (table ([class "sortable, dirlist"])
+           (table ([class "dirlist frontpage"])
                   (thead
                    (tr (td "Push#")
                        (td "Status")
@@ -1222,11 +1221,11 @@ in.}
                              [(not (lc-zero? timeout)) "Timeout"]
                              [(not (lc-zero? unclean)) "Failure"]
                              [else "Success"]))
-                         `(tr ([onclick ,(format "document.location = ~S" url)])
+                         `(tr ([class "dir"]
+                               [onclick ,(format "document.location = ~S" url)])
                               (td (a ([href ,url]) ,name))
                               (td ,status-text)
-                              (td ([sorttable_customkey ,(number->string dur)])
-                                  ,(format-duration-ms dur))
+                              (td ,(format-duration-ms dur))
                               (td ,(if (lc-zero? changed) '" " checkmark-entity)))])
                       page-results)))
            (table ([id "revnav"] [width "100%"])
