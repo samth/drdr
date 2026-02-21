@@ -12,8 +12,8 @@ WorkingDirectory=/opt/svn/drdr
 ExecStartPre=/bin/sh -c '/opt/plt/plt/bin/raco make *.rkt */*.rkt'
 ExecStart=/opt/plt/plt/bin/racket -t /opt/svn/drdr/render.rkt
 
-# render should stay running; restart only on failure
-Restart=on-failure
+# Restart on any exit, matching good-init.sh behavior
+Restart=always
 RestartSec=5s
 
 Environment=PLTSTDERR=warning

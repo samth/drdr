@@ -49,18 +49,18 @@ validate() {
     fi
 
     # Working directory
-    if [ -d /opt/svn/drdr ]; then
-        echo "OK   /opt/svn/drdr exists"
+    if [ -d "$REPO" ]; then
+        echo "OK   $REPO exists"
     else
-        echo "FAIL /opt/svn/drdr does not exist"
+        echo "FAIL $REPO does not exist"
         errors=$((errors + 1))
     fi
 
     # Source files to compile
-    if ls /opt/svn/drdr/*.rkt >/dev/null 2>&1; then
-        echo "OK   /opt/svn/drdr/*.rkt files present"
+    if ls "$REPO"/*.rkt >/dev/null 2>&1; then
+        echo "OK   $REPO/*.rkt files present"
     else
-        echo "FAIL no .rkt files in /opt/svn/drdr/"
+        echo "FAIL no .rkt files in $REPO/"
         errors=$((errors + 1))
     fi
 
@@ -136,7 +136,7 @@ validate() {
     for unit in drdr-main.service drdr-render.service; do
         if [ -f "$REPO/systemd/$unit" ]; then
             echo "--- $unit ---"
-            sudo systemd-analyze verify "$REPO/systemd/$unit" 2>&1 || true
+            systemd-analyze verify "$REPO/systemd/$unit" 2>&1 || true
         fi
     done
 
@@ -196,7 +196,7 @@ echo "Repo: $REPO"
 # Run validation first
 if ! validate; then
     echo ""
-    echo "Fix the errors above before installing." >&2
+    echo "Fix the issues above before installing." >&2
     exit 1
 fi
 

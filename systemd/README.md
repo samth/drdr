@@ -122,7 +122,7 @@ cd /opt/svn/drdr
 
 | Setting | Value | Why |
 |---------|-------|-----|
-| `Restart=on-failure` | Only restart on failure | render should stay running |
+| `Restart=always` | Restart on any exit | Matches good-init.sh; render should stay running |
 | `RestartSec=5s` | 5 second delay | Slightly longer to avoid rapid restart loops |
 | `TimeoutStopSec=30s` | 30 second stop timeout | Web server shuts down quickly |
 | `NoNewPrivileges=yes` | Set | render never starts X, safe to restrict |
