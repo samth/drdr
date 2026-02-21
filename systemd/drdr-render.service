@@ -1,0 +1,29 @@
+[Unit]
+Description=DrDr web renderer (port 9000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jay
+Group=jay
+WorkingDirectory=/opt/svn/drdr
+
+ExecStartPre=/bin/sh -c '/opt/plt/plt/bin/raco make *.rkt */*.rkt'
+ExecStart=/opt/plt/plt/bin/racket -t /opt/svn/drdr/render.rkt
+
+# render should stay running; restart only on failure
+Restart=on-failure
+RestartSec=5s
+
+Environment=PLTSTDERR=warning
+
+KillMode=control-group
+TimeoutStopSec=30s
+SendSIGKILL=yes
+
+NoNewPrivileges=yes
+PrivateIPC=yes
+
+[Install]
+WantedBy=multi-user.target
