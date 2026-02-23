@@ -136,7 +136,10 @@ validate() {
     for unit in drdr-main.service drdr-render.service; do
         if [ -f "$REPO/systemd/$unit" ]; then
             echo "--- $unit ---"
-            systemd-analyze verify "$REPO/systemd/$unit" 2>&1 || true
+            if ! systemd-analyze verify "$REPO/systemd/$unit" 2>&1; then
+                echo "FAIL systemd-analyze verify failed for $unit"
+                errors=$((errors + 1))
+            fi
         fi
     done
 
@@ -145,8 +148,8 @@ validate() {
     echo "Existing DrDr service state:"
     for svc in drdr-main.service drdr-render.service drdr.target; do
         local state
-        state=$(systemctl is-active "$svc" 2>/dev/null || echo "not-found")
-        echo "  $svc: $state"
+        state=$(systemctl is-active "$svc" 2>/dev/null) || true
+        echo "  $svc: ${state:-not-found}"
     done
 
     # Check if good-init.sh is still running
