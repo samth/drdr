@@ -133,7 +133,7 @@ validate() {
     # systemd-analyze verify
     echo ""
     echo "Running systemd-analyze verify (unrelated warnings are normal)..."
-    for unit in drdr-main.service drdr-render.service; do
+    for unit in drdr-main.service drdr-render.service drdr.target; do
         if [ -f "$REPO/systemd/$unit" ]; then
             echo "--- $unit ---"
             if ! systemd-analyze verify "$REPO/systemd/$unit" 2>&1; then
@@ -216,10 +216,15 @@ sudo systemctl disable drdr-main.service 2>/dev/null || true
 sudo systemctl disable drdr-render.service 2>/dev/null || true
 sudo systemctl disable drdr.target 2>/dev/null || true
 
-# Remove old symlinks (makes link idempotent)
-sudo rm -f /etc/systemd/system/drdr-main.service
-sudo rm -f /etc/systemd/system/drdr-render.service
-sudo rm -f /etc/systemd/system/drdr.target
+# Remove old unit file links (only if they are symlinks)
+for unit in drdr-main.service drdr-render.service drdr.target; do
+    target="/etc/systemd/system/$unit"
+    if [ -L "$target" ]; then
+        sudo rm -f "$target"
+    elif [ -e "$target" ]; then
+        echo "WARNING: $target exists but is not a symlink; not removing" >&2
+    fi
+done
 
 # Link unit files from repo
 echo ""

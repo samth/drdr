@@ -14,7 +14,7 @@ Both run as user `jay`. They communicate via the shared filesystem under `/opt/p
 ### What systemd provides over good-init.sh
 
 - **cgroup-based cleanup**: When main is stopped or restarted, systemd kills all child processes (Xorg, metacity, test subprocesses) via the cgroup. No more `pgrep`/`kill` pattern matching.
-- **Automatic restart**: main restarts after each revision exit; render restarts on failure.
+- **Automatic restart**: both services restart on any exit (main exits after each revision; render should run continuously).
 - **Observable status**: `systemctl status` shows PID, memory, uptime, recent log lines.
 - **Structured logging**: All output goes to the journal.
 - **IPC isolation**: `PrivateIPC=yes` gives each service its own SysV IPC namespace. Stale shared memory segments are cleaned up when the service stops.

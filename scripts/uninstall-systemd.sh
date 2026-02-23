@@ -20,11 +20,16 @@ sudo systemctl disable drdr-main.service 2>/dev/null || true
 sudo systemctl disable drdr-render.service 2>/dev/null || true
 sudo systemctl disable drdr.target 2>/dev/null || true
 
-# Remove linked unit files
+# Remove unit file links (only if they are symlinks)
 echo "Removing unit file links..."
-sudo rm -f /etc/systemd/system/drdr-main.service
-sudo rm -f /etc/systemd/system/drdr-render.service
-sudo rm -f /etc/systemd/system/drdr.target
+for unit in drdr-main.service drdr-render.service drdr.target; do
+    target="/etc/systemd/system/$unit"
+    if [ -L "$target" ]; then
+        sudo rm -f "$target"
+    elif [ -e "$target" ]; then
+        echo "WARNING: $target exists but is not a symlink; not removing" >&2
+    fi
+done
 
 # Clear failed state
 sudo systemctl reset-failed drdr-main.service 2>/dev/null || true
