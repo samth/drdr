@@ -1,7 +1,8 @@
 #lang racket/base
 (require racket/bool
          racket/contract/base
-         "path-utils.rkt")
+         "path-utils.rkt"
+         "not-cached.rkt")
 
 (define number-of-cpus
   (make-parameter 1))
@@ -75,27 +76,17 @@
 ;; directory prefix so it works with the extra build directory.
 (define (relocate-build-path pth)
   (define pth* (if (path? pth) pth (string->path pth)))
-  (if (not (extra-build-directory))
-      pth*
-      (let ()
-        (define primary-parts (explode-path (plt-build-directory)))
-        (define extra-parts (explode-path (extra-build-directory)))
-        (define pth-parts (explode-path pth*))
-        (define plen (length primary-parts))
-        (if (and (>= (length pth-parts) plen)
-                 (equal? (for/list ([p (in-list pth-parts)]
-                                    [_ (in-range plen)])
-                           p)
-                         primary-parts)
-                 (not (file-exists? pth*))
-                 (not (directory-exists? pth*)))
-            (let ([relocated (apply build-path
-                                    (append extra-parts
-                                            (list-tail pth-parts plen)))])
-              (if (or (file-exists? relocated) (directory-exists? relocated))
-                  relocated
-                  pth*))
-            pth*))))
+  (define below (and (extra-build-directory)
+                     (not (file-exists? pth*))
+                     (not (directory-exists? pth*))
+                     (path-prefix-split pth* (plt-build-directory))))
+  (cond
+    [(not (pair? below)) pth*]
+    [else
+     (define relocated (apply build-path (extra-build-directory) below))
+     (if (or (file-exists? relocated) (directory-exists? relocated))
+         relocated
+         pth*)]))
 
 (define (revision-log-dir rev)
   (build-path (revision-dir rev) "logs"))
@@ -113,11 +104,21 @@
 (define (revision-commit-msg rev)
   (build-path (revision-dir rev) "commit-msg"))
 
+;; A build lives under the primary build directory until it ages out, and
+;; under the extra build directory afterwards.  Those two roots need not
+;; have the same number of path elements, so find the revision by matching
+;; a root prefix rather than by indexing at the primary root's length.
 (define (path->revision pth)
-  (define builds (explode-path (plt-build-directory)))
-  (define builds-len (length builds))
-  (define pths (explode-path pth))
-  (string->number (path->string* (list-ref pths builds-len))))
+  (define (revision-under root)
+    (define below (and root (path-prefix-split pth root)))
+    (and (pair? below)
+         (string->number (path->string* (car below)))))
+  (or (revision-under (plt-build-directory))
+      (revision-under (extra-build-directory))
+      ;; Reachable for paths that are simply outside both build roots --
+      ;; `future-record-path`, say -- so callers standing a default in for
+      ;; uncached data must be able to tell this from a bug.
+      (raise-not-cached "path->revision: no revision in ~e" pth)))
 
 (define (revision-archive rev)
   (build-path (revision-dir rev) "archive.db"))
@@ -178,3 +179,54 @@
  [revision-archive (exact-nonnegative-integer? . -> . path?)]
  [path->revision (path-string? . -> . exact-nonnegative-integer?)]
  [plt-new-pushes-file (-> path-string?)])
+
+(module+ test
+  (require rackunit)
+
+  (define (with-roots primary extra thunk)
+    (parameterize ([plt-directory primary]
+                   [extra-build-directory extra])
+      (thunk)))
+
+  ;; The extra root has one FEWER element than the primary one here, which
+  ;; is the layout in production: indexing at the primary root's length used
+  ;; to land on "logs" and produce #f, so every archived build looked absent.
+  (with-roots
+   "/opt/plt" "/extra/builds"
+   (lambda ()
+     (check-equal? (path->revision "/opt/plt/builds/73400/logs") 73400)
+     (check-equal? (path->revision "/opt/plt/builds/73400/logs/pkgs/base") 73400)
+     (check-equal? (path->revision "/extra/builds/55389/logs") 55389)
+     (check-equal? (path->revision "/extra/builds/55389/archive.db") 55389)
+     (check-equal? (path->revision "/extra/builds/55389/logs/pkgs/base") 55389)
+     (check-exn exn:fail? (lambda () (path->revision "/somewhere/else/55389/logs")))))
+
+  ;; An extra root longer than the primary one must work the same way, so
+  ;; that nothing depends on the two roots' relative depth.
+  (with-roots
+   "/opt/plt" "/mnt/a/b/c/builds"
+   (lambda ()
+     (check-equal? (path->revision "/mnt/a/b/c/builds/50001/logs") 50001)
+     (check-equal? (path->revision "/opt/plt/builds/73400/logs") 73400)))
+
+  ;; With no extra directory configured, only the primary root resolves.
+  (with-roots
+   "/opt/plt" #f
+   (lambda ()
+     (check-equal? (path->revision "/opt/plt/builds/73400/logs") 73400)
+     (check-exn exn:fail? (lambda () (path->revision "/extra/builds/55389/logs")))))
+
+  ;; A path that stops at the revision itself has no revision element after
+  ;; the root, and must not be read as one.
+  (with-roots
+   "/opt/plt" "/extra/builds"
+   (lambda ()
+     (check-exn exn:fail? (lambda () (path->revision "/opt/plt/builds")))))
+
+  ;; A path outside both roots is a miss, not a bug: callers stand a default
+  ;; in for it, and must be able to tell the two apart.
+  (with-roots
+   "/opt/plt" "/extra/builds"
+   (lambda ()
+     (check-exn exn:fail:not-cached?
+                (lambda () (path->revision "/opt/plt/future-builds/1234"))))))

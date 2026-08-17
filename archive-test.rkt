@@ -39,3 +39,18 @@
 (check-false (archive-directory-exists? archive (build-path (current-directory) "unknown")))
 (check-false (archive-directory-exists? archive (build-path (current-directory) "archive-test.rkt")))
 
+;; A path with a different prefix but the same number of elements must not
+;; resolve.  Dropping that many elements without checking them is how a
+;; build moved to another directory silently read entries from one level up.
+(define cwd-parts (explode-path (current-directory)))
+(define bogus-root
+  (apply build-path
+         (car cwd-parts)
+         (for/list ([_ (in-list (cdr cwd-parts))]
+                    [n (in-naturals)])
+           (string->path-element (format "bogus~a" n)))))
+
+(check-false (archive-directory-exists? archive (build-path bogus-root "static")))
+(check-exn #rx"not in the archive"
+           (lambda () (archive-extract-file archive (build-path bogus-root "archive-test.rkt"))))
+
