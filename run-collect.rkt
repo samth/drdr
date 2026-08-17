@@ -123,8 +123,30 @@
                       (regexp-replace** ([pat subst] ...) s)
                       subst0)]))
 
-(define (run/collect/wait/log log-path command 
-                              #:timeout timeout 
+;; The build directory for a revision, and the same directory with the
+;; revision replaced by its placeholder.  Both come from one read of the
+;; build directory, so the prefix being replaced and the prefix replacing it
+;; cannot disagree.
+(define (revision-build-paths rev)
+  (define builds (plt-build-directory))
+  (values (path->string (build-path builds (number->string rev)))
+          (path->string (build-path builds "<current-rev>"))))
+
+;; Scrub machine- and push-specific paths out of captured output so that a
+;; log only changes when the test's behaviour does.  The revision is
+;; anchored to the build directory: substituting the bare number rewrote
+;; every other occurrence of those digits too, so a push whose number
+;; appeared inside a git checksum -- as 73506 does in expeditor's -- made
+;; `raco pkg show` report a spurious change for that package.
+(define (scrub-output s rev-dir rev-dir/scrubbed tmp home cwd)
+  (regexp-replace** ([rev-dir rev-dir/scrubbed]
+                     [tmp "<tmp>"]
+                     [home "<home>"]
+                     [cwd "<cwd>"])
+                    s))
+
+(define (run/collect/wait/log log-path command
+                              #:timeout timeout
                               #:env env
                               args)
   (define ran? #f)
@@ -133,16 +155,13 @@
    (lambda ()
      (notify! "No cache: ~a" log-path)
 
-     (define rev (number->string (current-rev)))
+     (define-values (rev-dir rev-dir/scrubbed)
+       (revision-build-paths (current-rev)))
      (define home (hash-ref env "HOME"))
      (define tmp (hash-ref env "TMPDIR"))
      (define cwd (path->string (current-directory)))
      (define (rewrite s)
-       (regexp-replace** ([rev "<current-rev>"]
-                          [tmp "<tmp>"]
-                          [home "<home>"]
-                          [cwd "<cwd>"])
-                         s))
+       (scrub-output s rev-dir rev-dir/scrubbed tmp home cwd))
      
      (set! ran? #t)
      (rewrite-status
@@ -165,6 +184,35 @@
  [run/collect/wait/log 
   (path-string? string? 
                 #:env (hash/c string? string?) 
-                #:timeout exact-nonnegative-integer? 
-                (listof string?) 
+                #:timeout exact-nonnegative-integer?
+                (listof string?)
                 . -> . boolean?)])
+
+(module+ test
+  (require rackunit)
+
+  (parameterize ([plt-directory "/opt/plt"])
+    (define-values (rev-dir rev-dir/scrubbed) (revision-build-paths 73506))
+    ;; `run/collect/wait/log` passes (path->string (current-directory)), which
+    ;; always ends in a separator, so pin that shape rather than one the
+    ;; caller never produces.
+    (define cwd "/opt/plt/builds/73506/trunk/")
+    (define (scrub s)
+      (scrub-output s rev-dir rev-dir/scrubbed "/tmp/x/" "/home/jay" cwd))
+
+    (check-true (regexp-match? #rx"/$" (path->string (current-directory))))
+
+    ;; Build paths still collapse to the placeholder, exactly as before.
+    (check-equal? (scrub "/opt/plt/builds/73506/logs/pkgs/base")
+                  "/opt/plt/builds/<current-rev>/logs/pkgs/base")
+    (check-equal? (scrub "/tmp/x/foo") "<tmp>foo")
+    (check-equal? (scrub "/home/jay/.racket") "<home>/.racket")
+    (check-equal? (scrub "/opt/plt/builds/73506/trunk/racket") "<cwd>racket")
+
+    ;; A checksum that happens to contain the push number must survive:
+    ;; this is expeditor's real checksum on push 73506, which used to be
+    ;; reported as changed on that push alone.
+    (check-equal? (scrub "65e20a410bdc5f09c0682a1bb57cac2b68d73506")
+                  "65e20a410bdc5f09c0682a1bb57cac2b68d73506")
+    ;; and so must a bare mention of the number
+    (check-equal? (scrub "ran 73506 tests") "ran 73506 tests")))
