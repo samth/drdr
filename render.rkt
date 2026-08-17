@@ -31,19 +31,31 @@
         (if (file-exists? p) 1 0))
       0))
 
+;; Finding the baseline walks whole revisions' log trees, so cache it.  A
+;; successful answer never changes and is kept for good; a failure means no
+;; revision has reached the threshold *yet*, so retry, but not before
+;; `log-file-baseline-retry-seconds` has passed -- caching only the success
+;; meant every render rescanned every revision until one existed, and
+;; caching the failure meant the percentage never came back.
 (define log-file-baseline #f)
+(define log-file-baseline-checked 0)
+(define log-file-baseline-retry-seconds (* 10 60))
 (define (get-log-file-baseline)
-  (or log-file-baseline
-      (let ()
-        (define builds (plt-build-directory))
-        (define revs
-          (sort (filter-map (compose string->number path->string)
-                            (directory-list builds))
-                >))
-        (for/or ([rev (in-list revs)])
-          (define c (count-log-files (revision-log-dir rev)))
-          (and (>= c 30000)
-               (begin (set! log-file-baseline c) c))))))
+  (unless (or log-file-baseline
+              ((current-seconds) . < . (+ log-file-baseline-checked
+                                          log-file-baseline-retry-seconds)))
+    (set! log-file-baseline-checked (current-seconds))
+    (set! log-file-baseline
+          (let ()
+            (define builds (plt-build-directory))
+            (define revs
+              (sort (filter-map (compose string->number path->string)
+                                (directory-list builds))
+                    >))
+            (for/or ([rev (in-list revs)])
+              (define c (count-log-files (revision-log-dir rev)))
+              (and (>= c 30000) c)))))
+  log-file-baseline)
 
 (define (base-path pth)
   (define rev (current-rev))
