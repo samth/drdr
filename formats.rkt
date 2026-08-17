@@ -1,14 +1,17 @@
 #lang racket/base
-(require racket/contract/base)
+(require racket/contract/base
+         "notify.rkt")
 
 (define (formats v u)
   (if (equal? v -inf.0)
       "ε"
-      (with-handlers ([exn:fail? (lambda (x)
-                                   (format "~a~a"
-                                           (number->string v) u))])
-        (format "~a~a"
-                (real->decimal-string v 2) u))))
+      (swallow 'formats v
+               (lambda ()
+                 (format "~a~a"
+                         (real->decimal-string v 2) u))
+               #:on-fail (lambda ()
+                           (format "~a~a"
+                                   (number->string v) u)))))
 
 (define (format-duration-h h)
   (formats h "h"))

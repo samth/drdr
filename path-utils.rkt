@@ -2,7 +2,8 @@
 (require racket/list
          racket/path
          racket/contract/base
-         racket/file)
+         racket/file
+         "notify.rkt")
 
 (define current-temporary-directory
   (make-parameter #f))
@@ -21,8 +22,11 @@
   (directory-list->directory-list* (directory-list pth)))
 
 (define (safely-delete-directory pth)
-  (with-handlers ([exn:fail? (lambda (x) (void))])
-    (delete-directory/files pth)))
+  ;; Deleting something that is already gone is the point of "safely".
+  (swallow 'safely-delete-directory pth
+           (lambda () (delete-directory/files pth))
+           #:expected? exn:fail:filesystem?)
+  (void))
 
 (define (make-parent-directory pth)  
   (define pth-dir (path-only pth))

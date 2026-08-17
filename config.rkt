@@ -3,6 +3,7 @@
          racket/contract/base
          "cache.rkt"
          "dirstruct.rkt"
+         "notify.rkt"
          "scm.rkt"
          "monitor-scm.rkt")
 
@@ -19,11 +20,9 @@
 (current-monitoring-interval-seconds 60)
 (number-of-cpus 18)
 
-(define (string->number* s)
-  (with-handlers ([exn:fail? (lambda (x) #f)])
-    (let ([v (string->number s)])
-      (and (number? v)
-           v))))
+;; `string->number` answers #f rather than raising, so there is nothing here
+;; to guard against.
+(define string->number* string->number)
 
 (define revisions-b (box #f))
 
@@ -43,8 +42,10 @@
   (list-ref l (- (length l) 2)))
 
 (define (second-newest-revision)
-  (with-handlers ([exn:fail? (lambda (x) #f)])
-    (second-to-last (unbox revisions-b))))
+  ;; There may not be two revisions yet, which is not worth reporting.
+  (swallow 'second-newest-revision 'revisions
+           (lambda () (second-to-last (unbox revisions-b)))
+           #:expected? exn:fail:contract?))
 
 (define (newest-completed-revision)
   (define n (newest-revision))

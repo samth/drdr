@@ -15,6 +15,7 @@
          "list-count.rkt"
          "cache.rkt"
          "not-cached.rkt"
+         "notify.rkt"
          (except-in "dirstruct.rkt"
                     revision-trunk-dir)
          "status.rkt"
@@ -151,7 +152,8 @@
 
 (define (svn-date->nice-date date)
   (define nice-date (regexp-replace "^(....-..-..)T(..:..:..).*Z$" date "\\1 \\2"))
-  (with-handlers ([exn:fail? (lambda (x) nice-date)])
+  (swallow 'svn-date->nice-date date #:on-fail (lambda () nice-date)
+   (lambda ()
     (match (regexp-match #rx"^(....)-(..)-(..T)(..):(..):(..).*Z$" date)
       [(list _ year month dayT hour minute second)
        (define day (substring dayT 0 2))
@@ -162,10 +164,11 @@
                                      (string->number month)
                                      (string->number year)))
        (make-timestamp-span nice-date timestamp)]
-      [else nice-date])))
+      [else nice-date]))))
 (define (git-date->nice-date date)
   (define nice-date (regexp-replace "^(....-..-..) (..:..:..).*$" date "\\1 \\2"))
-  (with-handlers ([exn:fail? (lambda (x) nice-date)])
+  (swallow 'git-date->nice-date date #:on-fail (lambda () nice-date)
+   (lambda ()
     ; Parse "2023-12-25 10:30:45 +0000" format
     (match (regexp-match #rx"^([0-9][0-9][0-9][0-9])-([0-9][0-9])-([0-9][0-9]) ([0-9][0-9]):([0-9][0-9]):([0-9][0-9]).*$" date)
       [(list _ year month day hour minute second)
@@ -176,7 +179,7 @@
                                      (string->number month)
                                      (string->number year)))
        (make-timestamp-span nice-date timestamp)]
-      [else nice-date])))
+      [else nice-date]))))
 (define (log->url log)
   (define start-commit (git-push-start-commit log))
   (define end-commit (git-push-end-commit log))
@@ -188,11 +191,14 @@
 (define (format-commit-msg)
   (define pth (revision-commit-msg (current-rev)))
   (define (timestamp pth)
-    (with-handlers ([exn:fail? (lambda (x) "")])
-      (define secs (read-cache
-                    (build-path (revision-dir (current-rev)) pth)))
-      (define utc-time-str (date->string (seconds->date secs) #t))
-      (make-timestamp-span utc-time-str secs)))
+    (swallow 'render/timestamp pth
+             (lambda ()
+               (define secs (read-cache
+                             (build-path (revision-dir (current-rev)) pth)))
+               (define utc-time-str (date->string (seconds->date secs) #t))
+               (make-timestamp-span utc-time-str secs))
+             #:expected? not-cached?
+             #:on-fail (lambda () "")))
   (define bdate/s (timestamp "checkout-done"))
   (define bdate/e (timestamp "integrated"))
   (match (read-cache* pth)
@@ -367,14 +373,16 @@
         "ms"))
 
 (define (render-event e)
-  (with-handlers ([exn:fail?
-                   (lambda (x)
-                     `(pre ([class "unprintable"]) "UNPRINTABLE"))])
-    (match e
-      [(struct stdout (bs))
-       `(pre ([class "stdout"]) ,(bytes->string/utf-8 bs))]
-      [(struct stderr (bs))
-       `(pre ([class "stderr"]) ,(bytes->string/utf-8 bs))])))
+  ;; Log output is arbitrary bytes, so failing to decode it is routine.
+  (swallow 'render-event e
+           #:expected? exn:fail:contract?
+           #:on-fail (lambda () `(pre ([class "unprintable"]) "UNPRINTABLE"))
+           (lambda ()
+             (match e
+               [(struct stdout (bs))
+                `(pre ([class "stdout"]) ,(bytes->string/utf-8 bs))]
+               [(struct stderr (bs))
+                `(pre ([class "stderr"]) ,(bytes->string/utf-8 bs))]))))
 
 (define (json-out out x)
   (cond
@@ -436,14 +444,17 @@
         (define s-output-log (log-divide output-log))
         (define (timestamp msecs)
           (define secs (/ msecs 1000))
-          (with-handlers ([exn:fail? (lambda (x) "")])
-            (define utc-time-str (format "~a.~a"
-                                       (date->string (seconds->date secs) #t)
-                                       (substring
-                                        (number->string
-                                         (/ (- msecs (* 1000 (floor secs))) 1000))
-                                        2)))
-            (make-timestamp-span utc-time-str (inexact->exact (floor secs)))))
+          (swallow 'render/timestamp msecs
+                   #:on-fail (lambda () "")
+                   (lambda ()
+                     (define utc-time-str
+                       (format "~a.~a"
+                               (date->string (seconds->date secs) #t)
+                               (substring
+                                (number->string
+                                 (/ (- msecs (* 1000 (floor secs))) 1000))
+                                2)))
+                     (make-timestamp-span utc-time-str (inexact->exact (floor secs))))))
         (response/xexpr
          `(html 
            (head (title ,title)
@@ -606,14 +617,20 @@
                    ,(local [(define responsible->problems
                               (rendering->responsible-ht (current-rev) pth-rendering))
                             (define last-responsible->problems
-                              (with-handlers ([exn:fail? (lambda (x) (make-hash))])
-                                (define prev-dir-pth ((rebase-path (revision-log-dir (current-rev))
-                                                                   (revision-log-dir (previous-rev)))
-                                                      dir-pth))
-                                (define previous-pth-rendering
-                                  (parameterize ([current-rev (previous-rev)])
-                                    (dir-rendering prev-dir-pth)))
-                                (rendering->responsible-ht (previous-rev) previous-pth-rendering)))
+                              (swallow
+                               'last-responsible->problems dir-pth
+                               #:expected? not-cached?
+                               #:on-fail make-hash
+                               (lambda ()
+                                 (define prev-dir-pth
+                                   ((rebase-path (revision-log-dir (current-rev))
+                                                 (revision-log-dir (previous-rev)))
+                                    dir-pth))
+                                 (define previous-pth-rendering
+                                   (parameterize ([current-rev (previous-rev)])
+                                     (dir-rendering prev-dir-pth)))
+                                 (rendering->responsible-ht (previous-rev)
+                                                            previous-pth-rendering))))
                             (define new-responsible->problems
                               (responsible-ht-difference last-responsible->problems responsible->problems))
                             
